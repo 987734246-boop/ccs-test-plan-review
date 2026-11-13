@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "demo": false,
+  "input_sha256": "从 extraction.json 复制原件哈希",
+  "project": {
+    "product_model": null,
+    "approval_category": null,
+    "equipment_use": null,
+    "installation_location": null,
+    "application_date": null,
+    "submission_version": null,
+    "pending_conditions": []
+  },
+  "sources": [],
+  "items": [
+    {
+      "id": "TA-001",
+      "equipment": "待提取",
+      "test": "待从适用原文建立",
+      "proposed_status": "pending",
+      "applicability": {"confirmed": false, "reason": "尚待项目条件和正式原文"},
+      "anchor": {},
+      "citations": [],
+      "finding": "尚未建立可追溯的审查结论",
+      "action": "查明项目条件并取得适用原文后审查"
+    }
+  ]
+}
