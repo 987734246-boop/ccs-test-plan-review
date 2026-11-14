@@ -16,7 +16,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.parse import urlparse
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 OFFICIAL = ("ccs.org.cn", "ccs-service.net", "imo.org", "iacs.org.uk", "iacs.org", "iec.ch", "iso.org")
 STATUS = {"pass": "已核查", "deviation": "明确偏差", "incomplete": "描述不完整", "pending": "待核实", "exempt": "有依据免除", "not_applicable": "不适用"}
 ANNOTATION_STATUS = {"written":"已写入", "unlocated":"待定位", "not_required":"无需批注", "pending":"待写入"}
@@ -229,6 +229,9 @@ def validate_source(root, source, demo):
                 return "依据索引内容与原文不符"
     except (KeyError, OSError, ValueError):
         return "缺少可读取的依据原文及定位索引"
+    if source.get("baseline"):
+        from baseline import validate_project_source
+        return validate_project_source(root, source)
     return None
 
 
@@ -236,6 +239,15 @@ def source_state(root, source):
     state = {}
     paths = [source.get(k) for k in ("path", "index_path")]
     if source.get("link_proof"): paths.append(source["link_proof"].get("path"))
+    if source.get("baseline"):
+        path = source["baseline"].get("manifest_path")
+        paths.append(path)
+        try:
+            manifest_file = local(root, path)
+            manifest = read(manifest_file)
+            paths.append((manifest_file.parent / manifest["landing_path"]).relative_to(root).as_posix())
+        except (KeyError, OSError, ValueError, TypeError):
+            pass
     for path in filter(None, paths):
         try:
             file = local(root, path)

@@ -8,6 +8,21 @@
 4. WorkBuddy 技能入口上传整个技能包。若客户端只支持文件夹安装，选择解压后的技能目录。按客户端实际入口完成安装，不将安装步骤完成视为脚本调用成功。
 5. 将安装脚本打印的 Python 完整路径告知 WorkBuddy，要求先运行 CLI `--help` 和演示。
 
+## 下载并使用GD 019本地基准
+
+```powershell
+& '.\.venv\Scripts\python.exe' scripts/baseline.py download
+& '.\.venv\Scripts\python.exe' scripts/baseline.py verify
+& '.\.venv\Scripts\python.exe' scripts/baseline.py search --query '1.3.3'
+& '.\.venv\Scripts\python.exe' scripts/baseline.py page --page 7 --render 'demo-run/gd019-page7.png'
+# 先 extract 送审文件，再复制基准到该项目并登记选版理由
+& '.\.venv\Scripts\python.exe' scripts/baseline.py attach --project '项目目录' --reason '填写本项目采用2024版的具体理由'
+```
+
+默认基准目录为技能根目录的 `local-baselines/`，该目录不提交Git。也可在子命令前传 `--library '其他基准目录'`，例如 `scripts/baseline.py --library 'D:\CCS-baselines' verify`。`download`已有有效副本时直接复用；`download --refresh`主动访问官方原版附件核对正文是否变化，但不自动替代本项目的修订/通告检索。首次下载失败会报告原因，已有基准不会被覆盖。
+
+attach 默认将更新核查标记为pending。WorkBuddy完成本项目实际官方检索后，才按接口填写 `update_review`；工具验证正文身份和项目核查记录，不自动作出设备适用性判断。离线也能搜索/查看本地原文，但缺少更新核查的正式结论保持待核实。
+
 示例（路径请换成实际解压位置）：
 
 ```powershell
@@ -18,7 +33,7 @@
 
 向 WorkBuddy 发送：
 
-> 使用 ccs-test-plan-review 审查这份电气电子产品型式认可试验大纲。每次从官方来源查询适用版次；先读取 Skill 和接口说明，缺证据的项目列为待核实；输出原格式批注副本、审查矩阵和证据包。解释器为【填写完整路径】，项目目录为【填写路径】。
+> 使用 ccs-test-plan-review 审查这份电气电子产品型式认可试验大纲。以本地官方GD019-2024正文为基准，本次核查修订和项目适用性，结合表1.3.3a/1.3.3b及脚注建立应试清单；缺证据的项目列为待核实；输出原格式批注副本、审查矩阵和证据包。解释器为【填写完整路径】，项目目录为【填写路径】。
 
 ## 安装说明
 

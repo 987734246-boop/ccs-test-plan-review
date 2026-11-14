@@ -8,6 +8,8 @@
     "equipment_use": null,
     "installation_location": null,
     "application_date": null,
+    "ccs_received_date": null,
+    "approval_application_type": null,
     "submission_version": null,
     "pending_conditions": []
   },
