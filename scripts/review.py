@@ -16,7 +16,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.parse import urlparse
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 OFFICIAL = ("ccs.org.cn", "ccs-service.net", "imo.org", "iacs.org.uk", "iacs.org", "iec.ch", "iso.org")
 STATUS = {"pass": "已核查", "deviation": "明确偏差", "incomplete": "描述不完整", "pending": "待核实", "exempt": "有依据免除", "not_applicable": "不适用"}
 ANNOTATION_STATUS = {"written":"已写入", "unlocated":"待定位", "not_required":"无需批注", "pending":"待写入"}
@@ -217,6 +217,10 @@ def validate_source(root, source, demo):
         if not source.get(key): return "依据元数据缺失: " + key
     if source.get("fulltext") is not True or source.get("edition_confirmed") is not True:
         return "尚缺适用版次全文或版次核实"
+    # Only a release-pinned knowledge pack may skip native PDF extraction.
+    if source.get("knowledge"):
+        from knowledge import validate_source as validate_knowledge_source
+        return validate_knowledge_source(root,source)
     try:
         file = local(root, source["path"])
         if sha(file) != source["sha256"]: return "依据文件哈希不符"
@@ -239,6 +243,12 @@ def source_state(root, source):
     state = {}
     paths = [source.get(k) for k in ("path", "index_path")]
     if source.get("link_proof"): paths.append(source["link_proof"].get("path"))
+    if source.get("knowledge"):
+        path=source['knowledge'].get('manifest_path'); paths.append(path)
+        try:
+            manifest_file=local(root,path); manifest=read(manifest_file)
+            paths += [(manifest_file.parent / p).relative_to(root).as_posix() for p in manifest['files'] if Path(p).suffix.lower()!='.png']
+        except (KeyError,OSError,ValueError,TypeError): pass
     if source.get("baseline"):
         path = source["baseline"].get("manifest_path")
         paths.append(path)
@@ -280,6 +290,7 @@ UNITS = {"s": ("time", "1", "0"), "min": ("time", "60", "0"), "h": ("time", "360
          "V": ("voltage", "1", "0"), "mV": ("voltage", ".001", "0"), "kV": ("voltage", "1000", "0"),
          "A": ("current", "1", "0"), "mA": ("current", ".001", "0"), "°C": ("temperature", "1", "273.15"), "C": ("temperature", "1", "273.15"), "K": ("temperature", "1", "0"),
          "mm": ("length", ".001", "0"), "m": ("length", "1", "0"), "g": ("acceleration", "9.80665", "0"), "m/s²": ("acceleration", "1", "0"), "%": ("ratio", ".01", "0"), "1": ("ratio", "1", "0")}
+UNITS.update({"deg":("angle","1","0"),"°":("angle","1","0"),"oct/min":("octave_rate","1","0"),"dec/s":("decade_rate","1","0")})
 
 
 def number(value):
@@ -325,6 +336,9 @@ def check(root, demo=False):
     if review.get("schema_version") != 1: fail("schema_version 必须为 1")
     if review.get("input_sha256") != extraction["input"]["sha256"]: fail("审查记录与送审原件不符")
     if bool(review.get("demo")) != demo: fail("演示项目须显式使用 --demo；正式项目不能使用该参数")
+    if review.get('knowledge_pack'):
+        from knowledge import enrich
+        review=enrich(root,review)
     sources = {s["id"]: s for s in review.get("sources", [])}
     if len(sources) != len(review.get("sources", [])): fail("依据编号重复")
     source_errors = {sid: validate_source(root, s, demo) for sid, s in sources.items()}
@@ -336,6 +350,7 @@ def check(root, demo=False):
         status = item.get("proposed_status", "pending")
         if status not in STATUS: fail("未知审查状态: " + str(status))
         errors = citation_errors(root, item, sources, source_errors)
+        errors += item.get('knowledge_errors',[])
         if item.get("applicability", {}).get("confirmed") is not True or not item.get("applicability", {}).get("reason"):
             errors.append("项目适用性尚未确认")
         if not item.get("finding") or not item.get("action") or not item.get("test"):
@@ -391,7 +406,7 @@ def comment_text(item, data):
     if item["evidence_status"] != "verified":
         return f"{item['id']}｜待核实\n候选发现：{item['finding']}\n缺口：{'；'.join(item['evidence_errors'])}\n处理：补齐证据后复核。候选要求：{item['action']}"
     sources = {s["id"]: s for s in data["sources"]}
-    refs = [f"{sources[c['source_id']]['document_id']} {sources[c['source_id']]['edition']} {c['clause']}" for c in item["citations"]]
+    refs = list(dict.fromkeys(f"{sources[c['source_id']]['document_id']} {sources[c['source_id']]['edition']} {c['clause']}" for c in item["citations"]))
     prefix = "演示数据｜" if data.get("demo") else ""
     return f"{prefix}{item['id']}｜{STATUS[item['status']]}\n发现：{item['finding']}\n依据：{'；'.join(refs)}\n修改要求：{item['action']}"
 
@@ -520,7 +535,7 @@ def export(root):
         prefix=f"第{block['page']}页" if block.get("page") else f"主文第{block['paragraph']+1}段" if "paragraph" in block else "位置待核实"
         return prefix+"："+anchor.get("quote", "无原文锚点")
     def refs(item):
-        return "\n".join(f"{c.get('source_id','?')} / {sources_by_id.get(c.get('source_id'),{}).get('edition','待核实')} / {c.get('clause','待核实')}" for c in item.get("citations",[]))
+        return "\n".join(dict.fromkeys(f"{c.get('source_id','?')} / {sources_by_id.get(c.get('source_id'),{}).get('edition','待核实')} / {c.get('clause','待核实')}" for c in item.get("citations",[])))
     def calculation(item):
         trace=item.get("calculation")
         if not trace: return ""
@@ -541,9 +556,12 @@ def export(root):
     for row in basis.iter_rows(min_row=2):
         for col in (3,4): row[col].number_format="yyyy-mm-dd"
         row[8].number_format="yyyy-mm-dd hh:mm"
-    sheet("项目条件", ["条件", "内容"], [[k,v] for k,v in data.get("project",{}).items()] + [["提取待办", w] for w in data["extraction_warnings"]] + [["状态", "演示数据，禁止用于实际合规判断" if data.get("demo") else "验船师复核草稿"]], [30,110])
+    pack=data.get('knowledge_pack',{})
+    pack_rows=[["知识包版次",pack.get('id')],["原文快照日期",pack.get('snapshot_date')],["固定版次范围",pack.get('update_scope')],["审查模式",data.get('rule_mode','fixed')]] if pack else []
+    sheet("项目条件", ["条件", "内容"], [[k,v] for k,v in data.get("project",{}).items()] + pack_rows + [["提取待办", w] for w in data["extraction_warnings"]] + [["状态", "演示数据，禁止用于实际合规判断" if data.get("demo") else "验船师复核草稿"]], [30,110])
     wb.save(root / "review.xlsx")
     lines = ["# 适用依据与资料缺口", "", "演示数据，禁止用于实际合规判断。" if data.get("demo") else "验船师复核草稿。", ""]
+    if pack: lines += [f"知识包：{pack.get('id')}；原文快照日期：{pack.get('snapshot_date')}。",pack.get('update_scope',''),""]
     for s in data["sources"]:
         lines += [f"## {s['id']} {s.get('document_id','')} {s.get('edition','')}", s.get("applicability_reason", "待确认适用性"), f"官方来源：{s.get('official_url','无（演示或项目批准文件）')}", f"缺口：{data['source_errors'].get(s['id']) or '无已记录缺口'}", ""]
     lines += ["## 待办", *[f"- {w}" for w in data["extraction_warnings"]]]

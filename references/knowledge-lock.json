@@ -1,0 +1,8 @@
+{
+  "pack_id": "gd019-2024-e10r10-2026-r1",
+  "manifest_sha256": "aca516780805645b2e6106f572c84d4faf371dafb1802ca7bc84c10b71455893",
+  "guide_sha256": "502b67a6bc01d1f991e98300b688b7f2e7313ea83df164925cff67d96dd10b51",
+  "rule_count": 31,
+  "parameter_count": 29,
+  "source_snapshot_date": "2026-11-14"
+}

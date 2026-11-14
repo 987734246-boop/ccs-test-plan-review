@@ -1,3 +1,17 @@
+# v1.2 固定知识包日常接口
+
+日常推荐 `run.py prepare INPUT --project PROJECT [--conditions JSON]` 和 `run.py finish --project PROJECT`。旧五个review.py命令继续兼容。以下baseline.py/update_review说明仅用于旧版独立PDF来源；v1.2知识包来源通过发布锁校验，无需每项目重复做法规解析或强制联网核查。
+
+review.json顶层knowledge_pack由prepare登记，包含包ID、清单哈希、项目内路径、快照日期和范围；rule_mode默认为fixed。每项记录rule_id，例如GD019-2.7。完整规则与源文用 `knowledge.py find --query 2.7` 按需读取。数值项增加parameter_id，例如no_resonance_minutes，并填写numeric.actual、actual_unit和values_verified。限值由工具从固定规则取值，禁止把送审值当作规范限值。
+
+project.equipment按name关联每个审查项。equipment_type取electronic/motor/transformer/switchgear；environment取A/B/C/D/E；other_ccs_requirement=false须经核实。emc_type支持electronic_controller/computer/sensor/converter/charging_converter/induction_motor/synchronous_motor/dc_motor/transformer/non_electronic_breaker/relay_control。其他具体类型不能猜测映射。额外参数分支条件由查询返回，例如resonance_found、clustered_resonances、high_heat_environment、agreed_special_heat、extended_startup、general_inclination_case。
+
+prepare生成24项基本/EMC候选检查或第4章分流项，全部初始pending。rule_applicability.required=true仅表示规则触发，不表示已满足。每项仍须填写applicability.confirmed/reason、anchor、finding/action和proposed_status。not_applicable与exempt分别保留不适用理由及批准文件；不能据设备名称直接免除。
+
+对照尚未固化的数值不能使用parameter_id伪装；保持pending，补充该参数的源码校核与规则版本后再使用自动比较。知识包中的参数均标出source_checked和business_signoff未完成，不作为验船师签发证明。
+
+固定包模式将已知2026通告作为独立来源保存。倾斜项核对ccs_received_date以及new_type/substantial_modification/expired_certificate_renewal申请情形；其他独立试验不因倾斜日期缺失而全部挂起。若选择非fixed模式，工具提示尚需额外现行完整性核查，不自动标记已覆盖最新法规。
+
 # CLI 与项目接口 v1
 
 所有 JSON 使用 UTF-8。命令成功返回 0；输入错误返回 2；verify 自动检查失败返回 1。标准输出是简短 JSON，错误写标准错误。

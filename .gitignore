@@ -7,3 +7,4 @@ demo-run/
 work/
 *.zip
 local-baselines/
+knowledge/

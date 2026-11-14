@@ -1,0 +1,23 @@
+{
+  "product_model": null,
+  "submission_version": null,
+  "ccs_received_date": null,
+  "approval_application_type": null,
+  "equipment": [
+    {
+      "name": "填写设备名称",
+      "equipment_type": null,
+      "environment": null,
+      "other_ccs_requirement": null,
+      "navigation_radio": null,
+      "emc_type": null,
+      "control_or_computer": null,
+      "moving_parts": null,
+      "free_liquid_surface": null,
+      "nonmetal_enclosure": null,
+      "battery_only": null,
+      "cold_location": null,
+      "may_cause_em_interference": null
+    }
+  ]
+}
