@@ -16,10 +16,10 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.parse import urlparse
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 OFFICIAL = ("ccs.org.cn", "ccs-service.net", "imo.org", "iacs.org.uk", "iacs.org", "iec.ch", "iso.org")
 STATUS = {"pass": "已核查", "deviation": "明确偏差", "incomplete": "描述不完整", "pending": "待核实", "exempt": "有依据免除", "not_applicable": "不适用"}
-ANNOTATION_STATUS = {"written":"已写入", "unlocated":"待定位", "not_required":"无需批注", "pending":"待写入"}
+ANNOTATION_STATUS = {"written":"已写入", "unlocated":"待定位", "not_required":"无需批注", "pending":"待写入", "not_reviewed":"尚未审查"}
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
 
@@ -347,6 +347,8 @@ def check(root, demo=False):
     ids = [i.get("id") for i in items]
     if any(not isinstance(i, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,60}", i) for i in ids) or len(set(ids)) != len(ids): fail("审查项编号为空、重复或含非法字符")
     for item in items:
+        for field in ("recipient", "confirmation", "deliverable", "closure_criteria"):
+            if field in item and not isinstance(item[field], str): fail(field + " 须为文字")
         status = item.get("proposed_status", "pending")
         if status not in STATUS: fail("未知审查状态: " + str(status))
         errors = citation_errors(root, item, sources, source_errors)
@@ -383,9 +385,11 @@ def check(root, demo=False):
             errors.append("送审文本: " + location_error)
         item["location_error"] = location_error
         item["evidence_errors"] = sorted(set(errors))
-        item["evidence_status"] = "pending" if errors else "verified"
-        if errors: item["status"] = "pending"
+        if item.get("reviewed") is False: item["evidence_errors"].append("尚未逐项审查")
+        item["evidence_status"] = "pending" if item["evidence_errors"] else "verified"
+        if item["evidence_errors"]: item["status"] = "pending"
         item["annotation_status"] = "not_required" if item["status"] in ("pass", "exempt", "not_applicable") else "pending"
+        if item.get("reviewed") is False: item["annotation_status"] = "not_reviewed"
     output = {**review, "items": items, "version": VERSION, "review_sha256": sha(root / "review.json"), "extraction_sha256": sha(root / "extraction.json"), "source_errors": source_errors, "source_state": {sid:source_state(root,s) for sid,s in sources.items()}, "extraction_warnings": extraction["warnings"], "created_at": datetime.now(timezone.utc).isoformat()}
     write(root / "checked.json", output)
     return output
@@ -403,12 +407,43 @@ def current(root, filename):
 
 
 def comment_text(item, data):
-    if item["evidence_status"] != "verified":
-        return f"{item['id']}｜待核实\n候选发现：{item['finding']}\n缺口：{'；'.join(item['evidence_errors'])}\n处理：补齐证据后复核。候选要求：{item['action']}"
-    sources = {s["id"]: s for s in data["sources"]}
-    refs = list(dict.fromkeys(f"{sources[c['source_id']]['document_id']} {sources[c['source_id']]['edition']} {c['clause']}" for c in item["citations"]))
+    """A self-contained instruction to the recipient, also used for verification."""
+    pending = item["evidence_status"] != "verified" or item["status"] == "pending"
     prefix = "演示数据｜" if data.get("demo") else ""
-    return f"{prefix}{item['id']}｜{STATUS[item['status']]}\n发现：{item['finding']}\n依据：{'；'.join(refs)}\n修改要求：{item['action']}"
+    lines = [f"{prefix}{item['id']}｜{STATUS[item['status']]}"]
+    if item.get("recipient"): lines.append("请处理：" + item["recipient"])
+    quote = item.get("anchor", {}).get("quote")
+    if quote: lines.append(("相关标题/总表：" if item.get("missing_item") else "原文：") + quote)
+    lines.append(("待核实事项：" if pending else "实际问题：") + item.get("finding", "尚缺具体问题描述"))
+    if item.get("missing_item"):
+        lines.append("定位说明：本版大纲中未见列明该项；备注锚点为相关标题或总表。")
+    sources = {s["id"]: s for s in data["sources"]}
+    refs = list(dict.fromkeys(f"{sources[c['source_id']]['document_id']} {sources[c['source_id']]['edition']} {c['clause']}" for c in item.get("citations", []) if c.get("source_id") in sources))
+    if refs: lines.append(("候选依据（尚待核实）：" if pending else "依据：") + "；".join(refs))
+    if item.get("calculation"):
+        lines.append(("待复核数值：" if pending else "参数对比：") + calculation_text(item))
+    lines.append(("下一步核实：" if pending else "修改建议：") + item.get("action", "请补充具体处理要求"))
+    for key, label in (("confirmation", "请确认"), ("deliverable", "请提供"), ("closure_criteria", "复核关闭条件")):
+        if item.get(key): lines.append(label + "：" + item[key])
+    if item.get("evidence_errors"):
+        lines.append("尚缺证据：" + "；".join(item["evidence_errors"]))
+        lines.append("结论边界：补齐上述资料后复核，当前不作为确定性不符合结论。")
+    return "\n".join(lines)
+
+
+def calculation_text(item):
+    trace = item.get("calculation")
+    if not trace: return ""
+    rule = trace["rule"]
+    operation = {"ge":">=", "le":"<=", "equal":"=", "between":"区间内", "range_contains":"覆盖区间"}.get(rule["operator"], rule["operator"])
+    target = rule.get("expected", rule.get("min", rule.get("max")))
+    if rule["operator"] in ("between", "range_contains"): target = f"{rule['min']} 至 {rule['max']}"
+    return f"送审 {', '.join(map(str, trace['original']))} {trace['original_unit']}，换算为 {', '.join(trace['converted'])} {trace['unit']}；要求 {operation} {target} {trace['unit']}"
+
+
+def unlocated_text(items, data):
+    return "待定位事项汇总（本备注位置不是问题发生位置）\n请结合所列原文及问题编号确认实际位置，再处理以下事项。\n\n" + "\n\n".join(
+        comment_text(i, data) + "\n定位待办：" + i.get("annotation_error", "原位待确认") for i in items)
 
 
 def split_anchor(paragraph, start, end):
@@ -450,7 +485,7 @@ def annotate(root):
         from docx import Document
         doc = Document(source)
         for item in data["items"]:
-            if item["annotation_status"] == "not_required": continue
+            if item["annotation_status"] in ("not_required", "not_reviewed"): continue
             loc, error = locate(extraction, item.get("anchor", {}))
             if error:
                 item.update(annotation_status="unlocated", annotation_error=error); continue
@@ -464,6 +499,14 @@ def annotate(root):
             except ValueError as exc:
                 doc.element.replace(doc.element.body, saved)
                 item.update(annotation_status="unlocated", annotation_error=str(exc))
+        unresolved = [i for i in data["items"] if i["annotation_status"] == "unlocated"]
+        if unresolved:
+            first = next((p for p in paragraphs(doc) if p.text.strip() and p.runs), None)
+            if first is not None:
+                text = unlocated_text(unresolved, data)
+                summary = doc.add_comment(first.runs, text=text, author="CCS Review Draft", initials="CR")
+                data["unlocated_note"] = {"id": str(summary.comment_id), "text": text, "item_ids": [i["id"] for i in unresolved]}
+            else: data["unlocated_summary_error"] = "文档无可用正文锚点，无法写入待定位汇总备注"
         buffer = io.BytesIO(); doc.save(buffer); buffer.seek(0)
         # Preserve all untouched package parts byte-for-byte, including existing modern comments.
         with zipfile.ZipFile(source) as original, zipfile.ZipFile(buffer) as changed, zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as dest:
@@ -476,25 +519,44 @@ def annotate(root):
         import pymupdf as fitz
         with fitz.open(source) as pdf:
             for item in data["items"]:
-                if item["annotation_status"] == "not_required": continue
+                if item["annotation_status"] in ("not_required", "not_reviewed"): continue
                 loc, error = locate(extraction, item.get("anchor", {}))
                 if error:
                     item.update(annotation_status="unlocated", annotation_error=error); continue
                 block = loc["block"]; page = pdf[block["page"]-1]
                 if block["method"] == "ocr":
-                    annotation = page.add_rect_annot(fitz.Rect(block["bbox"]))
+                    box = fitz.Rect(block["bbox"])
+                    annotation = page.add_highlight_annot(fitz.Quad(box.tl, box.tr, box.bl, box.br))
                 else:
                     rects = page.search_for(item["anchor"]["quote"], clip=fitz.Rect(block["bbox"]) + (-1, -1, 1, 1), quads=True)
                     if len(rects) != 1:
                         item.update(annotation_status="unlocated", annotation_error="PDF 精确文本区域不唯一或跨行"); continue
                     annotation = page.add_highlight_annot(rects)
-                annotation.set_info(title="CCS Review Draft", subject=item["id"], content=comment_text(item, data)); annotation.update()
-                item.update(annotation_status="written", annotation_id=str(annotation.xref), annotation_location={"page": block["page"], "rect": list(annotation.rect)})
+                annotation.set_colors(stroke=(1, 0.85, 0)); annotation.set_opacity(0.35)
+                pdf_popup(annotation, page, item["id"], comment_text(item, data))
+                item.update(annotation_status="written", annotation_id=str(annotation.xref), annotation_location={"page": block["page"], "rect": list(annotation.rect), "scope": "ocr_line_region" if block["method"] == "ocr" else "exact_text"})
+            unresolved = [i for i in data["items"] if i["annotation_status"] == "unlocated"]
+            if unresolved and len(pdf):
+                page = pdf[0]; bounds = page.rect * page.derotation_matrix
+                summary = page.add_text_annot((max(bounds.x0, bounds.x1-28), bounds.y0+12), "", icon="Comment")
+                text = unlocated_text(unresolved, data)
+                pdf_popup(summary, page, "待定位事项汇总", text)
+                data["unlocated_note"] = {"id": str(summary.xref), "page": 1, "text": text, "item_ids": [i["id"] for i in unresolved]}
+            elif unresolved: data["unlocated_summary_error"] = "PDF无页面，无法写入待定位汇总备注"
             pdf.save(output, garbage=0, deflate=False)
     else: fail("送审批注仅支持 DOCX/PDF")
     data["annotated_file"] = output.name; data["annotated_sha256"] = sha(output)
     write(root / "annotated.json", data)
     return data
+
+
+def pdf_popup(annotation, page, subject, text):
+    import pymupdf as fitz
+    bounds = page.rect * page.derotation_matrix
+    annotation.set_info(title="CCS Review Draft", subject=subject, content=text)
+    annotation.set_popup(fitz.Rect(bounds.x0+8, bounds.y0+8, bounds.x0+min(400, bounds.width-8), bounds.y0+min(320, bounds.height-8)))
+    annotation.set_open(False)  # Native review pane / click-to-open note; keep the page readable.
+    annotation.update()
 
 
 def safe_cell(value):
@@ -536,16 +598,8 @@ def export(root):
         return prefix+"："+anchor.get("quote", "无原文锚点")
     def refs(item):
         return "\n".join(dict.fromkeys(f"{c.get('source_id','?')} / {sources_by_id.get(c.get('source_id'),{}).get('edition','待核实')} / {c.get('clause','待核实')}" for c in item.get("citations",[])))
-    def calculation(item):
-        trace=item.get("calculation")
-        if not trace: return ""
-        rule=trace["rule"]
-        operation={"ge":">=", "le":"<=", "equal":"=", "between":"区间内", "range_contains":"覆盖区间"}.get(rule["operator"],rule["operator"])
-        target=rule.get("expected",rule.get("min",rule.get("max")))
-        if rule["operator"] in ("between","range_contains"): target=f"{rule['min']} 至 {rule['max']}"
-        return f"{', '.join(map(str,trace['original']))} {trace['original_unit']} → {', '.join(trace['converted'])} {trace['unit']}\n要求：{operation} {target} {trace['unit']}"
-    rows = [[i["id"], i.get("equipment", ""), i.get("test", ""), STATUS[i["status"]], i["finding"], i["action"], location(i), refs(i), "；".join(i["evidence_errors"]), ANNOTATION_STATUS[i["annotation_status"]], i.get("annotation_error", ""), calculation(i), "演示数据" if data.get("demo") else "验船师复核草稿"] for i in data["items"]]
-    sheet("审查矩阵", ["编号", "设备", "试验项目", "结论", "发现", "修改要求", "送审定位", "规范引用", "证据缺口", "批注状态", "定位说明", "数值校核", "性质"], rows, [15, 18, 22, 16, 48, 48, 35, 30, 38, 18, 35, 32, 20])
+    rows = [[i["id"], i.get("equipment", ""), i.get("test", ""), STATUS[i["status"]], i["finding"], i["action"], location(i), refs(i), "；".join(i["evidence_errors"]), ANNOTATION_STATUS[i["annotation_status"]], i.get("annotation_error", ""), calculation_text(i), "演示数据" if data.get("demo") else "验船师复核草稿", i.get("recipient", ""), i.get("confirmation", ""), i.get("deliverable", ""), i.get("closure_criteria", "")] for i in data["items"]]
+    sheet("审查矩阵", ["编号", "设备", "试验项目", "结论", "发现", "修改要求", "送审定位", "规范引用", "证据缺口", "批注状态", "定位说明", "数值校核", "性质", "处理方", "需确认事项", "需提交材料", "复核关闭条件"], rows, [15, 18, 22, 16, 48, 48, 35, 30, 38, 18, 35, 32, 20, 20, 45, 45, 45])
     def date_value(value, timestamp=False):
         if not value: return None
         try:
@@ -615,7 +669,10 @@ def verify(root):
     source, output = Path(extraction["input"]["path"]), root / data["annotated_file"]
     checks = {"input_hash_unchanged": sha(source) == data["input_sha256"], "annotated_hash": sha(output) == data["annotated_sha256"], "checked_binding": sha(root/"checked.json") == data["annotation_input_sha256"]}
     written = [i for i in data["items"] if i["annotation_status"] == "written"]
+    unresolved = [i for i in data["items"] if i["annotation_status"] == "unlocated"]
+    note = data.get("unlocated_note", {})
     if source.suffix.lower() == ".docx":
+        from docx import Document
         from lxml import etree
         with zipfile.ZipFile(source) as a, zipfile.ZipFile(output) as b:
             checks["body_xml_preserved"] = canonical_document(a.read("word/document.xml")) == canonical_document(b.read("word/document.xml"))
@@ -628,6 +685,9 @@ def verify(root):
             checks["old_comments_preserved"] = all(c.get(f"{{{W}}}id") in by_id and etree.tostring(c,method="c14n")==etree.tostring(by_id[c.get(f"{{{W}}}id")],method="c14n") for c in old)
             checks["comment_ids_and_anchors"] = all(i["annotation_id"] in by_id and i["id"] in "".join(by_id[i["annotation_id"]].itertext()) and all(len(document.findall(f".//{{{W}}}{tag}[@{{{W}}}id='{i['annotation_id']}']")) == 1 for tag in ("commentRangeStart", "commentRangeEnd", "commentReference")) for i in written)
             checks["docx_comment_relationship"] = not written or (b"comments" in b.read("word/_rels/document.xml.rels") and b"comments+xml" in b.read("[Content_Types].xml"))
+        comments = {str(c.comment_id): c.text for c in Document(output).comments}
+        checks["actionable_comment_contents"] = all(comments.get(i["annotation_id"]) == comment_text(i, data) for i in written)
+        checks["unlocated_summary_in_document"] = not unresolved or (set(note.get("item_ids", [])) == {i["id"] for i in unresolved} and comments.get(note.get("id")) == unlocated_text(unresolved, data))
         checks["native_layout_review"] = None
     else:
         import pymupdf as fitz
@@ -649,15 +709,18 @@ def verify(root):
             before, after = annotation_snapshot(a), annotation_snapshot(b)
             checks["old_annotations_preserved"] = len(a)==len(b) and all(all(any({k:v for k,v in x.items() if k!="xref"}=={k:v for k,v in y.items() if k!="xref"} for y in after[n]) for x in before[n]) for n in range(len(a)))
             checks["annotation_ids_and_locations"] = all(any(an["xref"]==i["annotation_id"] and an["info"].get("subject")==i["id"] and an["rect"]==i["annotation_location"]["rect"] for an in after[i["annotation_location"]["page"]-1]) for i in written)
+            checks["actionable_comment_contents"] = all(any(an.info.get("content") == comment_text(i, data) and an.type[0] == fitz.PDF_ANNOT_HIGHLIGHT and an.has_popup and an.vertices and an.opacity > 0 for an in b[i["annotation_location"]["page"]-1].annots() or [] if str(an.xref) == i["annotation_id"]) for i in written)
+            checks["unlocated_summary_in_document"] = not unresolved or (set(note.get("item_ids", [])) == {i["id"] for i in unresolved} and note.get("page") == 1 and any(str(an.xref) == note.get("id") and an.info.get("content") == unlocated_text(unresolved, data) for an in b[0].annots() or []))
     wb = load_workbook(root / "review.xlsx", data_only=False)
     rows = list(wb["审查矩阵"].iter_rows(min_row=2, values_only=True))
     checks["matrix_ids_and_status"] = [(r[0],r[3],r[9]) for r in rows] == [(i["id"],STATUS[i["status"]],ANNOTATION_STATUS[i["annotation_status"]]) for i in data["items"]]
+    checks["matrix_follow_up_matches_comments"] = [tuple(row[13:17]) for row in rows] == [tuple(i.get(k) or None for k in ("recipient", "confirmation", "deliverable", "closure_criteria")) for i in data["items"]]
     checks["no_spreadsheet_formulas"] = all(c.data_type != "f" for ws in wb for row in ws for c in row)
     manifest = read(root/"evidence-manifest.json")
     checks["manifest_hashes"] = all(sha(local(root,f["path"]))==f["sha256"] for f in manifest["files"])
     with zipfile.ZipFile(root/"evidence.zip") as z:
         checks["evidence_archive"] = all(hashlib.sha256(z.read(f["path"])).hexdigest()==f["sha256"] for f in manifest["files"])
-    report = {"automated_checks_pass": all(v is not False for v in checks.values()), "checks": checks, "written_count": len(written), "unlocated": [i["id"] for i in data["items"] if i["annotation_status"]=="unlocated"], "pending_evidence": [i["id"] for i in data["items"] if i["evidence_status"]=="pending"], "manual_acceptance": {"WorkBuddy": "not_run", "Word": "not_run", "WPS": "not_run", "PDF_reader": "not_run", "real_reviewed_case": "not_run"}, "release_status": "pilot_only"}
+    report = {"automated_checks_pass": all(v is not False for v in checks.values()), "checks": checks, "written_count": len(written), "summary_count": len(note.get("item_ids", [])), "unlocated": [i["id"] for i in unresolved], "unreviewed": [i["id"] for i in data["items"] if i["annotation_status"] == "not_reviewed"], "pending_evidence": [i["id"] for i in data["items"] if i["evidence_status"]=="pending"], "manual_acceptance": {"WorkBuddy": "not_run", "Word": "not_run", "WPS": "not_run", "PDF_reader": "not_run", "real_reviewed_case": "not_run"}, "release_status": "pilot_only"}
     write(root / "verification.json", report)
     return report
 

@@ -59,6 +59,11 @@ def make_project(root, kind):
         item("TA-006","Inclination","Controller inclination",5,proposed_status="exempt",exemption={"equipment":"Camera","tests":["Inclination"],"conditions":"仅本构造案例","approval_source_id":"DEMO"}),
         item("TA-007","Unavailable basis","Test schedule",3,citations=[{"source_id":"MISSING","clause":"unknown","quote":"unknown"}])
     ]
+    items[0].update(finding="大纲列明30 min，构造依据要求至少60 min。", action="将本示例试验时长改为至少60 min，并补充试验期间运行状态。",
+                    recipient="厂家", confirmation="请确认本示例所选试验分支及运行状态。", deliverable="修订后的试验条目和时间表。", closure_criteria="时长、运行状态及记录相互一致，经复核后关闭。")
+    items[2].update(finding="已核对本版全文，试验总表未列构造依据要求的湿热试验。", action="在总表和方法章节补列本示例湿热试验及对应条件。", recipient="厂家", deliverable="补充该项后的大纲及修订说明。")
+    items[3].update(finding="大纲两处出现5 V，尚不能唯一确定本意见对应的对象与位置。", action="请标明对应设备、端口及试验项目，以便确认本意见的实际位置。", recipient="厂家／验船师", confirmation="本意见针对哪一处5 V？", deliverable="带条目编号的大纲或明确的原页位置。")
+    items[6].update(finding="尚未取得本项适用依据，无法确认应试要求。", action="取得适用版次全文并确认本项目适用性后复核。", recipient="验船师", confirmation="本项目采用哪份文件及版次？", deliverable="适用原文及选版理由。")
     review={"schema_version":1,"demo":True,"input_sha256":extraction["input"]["sha256"],"project":{"product_model":"DEMO Controller","submission_version":"Synthetic v1","note":"全部为构造案例；不含真实法规限值"},"sources":[source],"items":items}
     r.write(root/"review.json",review)
     return root

@@ -63,6 +63,60 @@ class ReviewTests(unittest.TestCase):
         checked=r.check(p)
         self.assertTrue(all(i["status"]=="pending" for i in checked["items"]))
 
+    def test_actionable_notes_survive_in_both_document_formats(self):
+        for kind in ("docx", "pdf"):
+            with self.subTest(kind=kind):
+                p=self.project(kind); data=r.read(p/"review.json"); item=data["items"][0]
+                item.update(finding="大纲仅列30 min，示例依据要求至少60 min。", action="将该项时长修订为至少60 min，并说明试验运行状态。",
+                            recipient="厂家", confirmation="请确认所选试验分支是否适用于送审型号。", deliverable="修订大纲及相应试验时间表。", closure_criteria="时长和工况有明确记录并经复核。")
+                r.write(p/"review.json",data); r.check(p,True); annotated=r.annotate(p); r.export(p); verified=r.verify(p)
+                self.assertTrue(verified["automated_checks_pass"],verified)
+                item=annotated["items"][0]; expected=r.comment_text(item,annotated)
+                if kind=="docx":
+                    from docx import Document
+                    actual=Document(p/annotated["annotated_file"]).comments.get(int(item["annotation_id"])).text
+                else:
+                    import pymupdf as fitz
+                    with fitz.open(p/annotated["annotated_file"]) as doc:
+                        page=doc[0]; note=page.load_annot(int(item["annotation_id"]))
+                        actual=note.info["content"]; self.assertTrue(note.has_popup)
+                        self.assertEqual(note.type[0],fitz.PDF_ANNOT_HIGHLIGHT)
+                self.assertEqual(actual,expected)
+                for value in ("30 min", "60 min", "厂家", "运行状态", "试验分支", "试验时间表", "复核关闭条件"):
+                    self.assertIn(value,actual)
+
+    def test_pending_note_requests_confirmation_without_asserting_deviation(self):
+        p=self.project("pdf"); data=r.read(p/"review.json"); item=data["items"][0]
+        item.update(confirmation="请确认控制器安装位置。",deliverable="安装布置图及适用规范版次。")
+        item["citations"][0]["source_id"]="MISSING"; r.write(p/"review.json",data)
+        checked=r.check(p,True); text=r.comment_text(checked["items"][0],checked)
+        self.assertIn("待核实事项",text); self.assertIn("下一步核实",text)
+        self.assertIn("安装布置图",text); self.assertIn("当前不作为确定性不符合结论",text)
+        self.assertNotIn("实际问题：",text); self.assertNotIn("修改建议：",text)
+        r.annotate(p); r.export(p); self.assertTrue(r.verify(p)["automated_checks_pass"])
+
+    def test_scan_uses_highlight_note_without_altering_image(self):
+        import pymupdf as fitz
+        p=self.project("scan"); r.check(p,True); data=r.annotate(p); r.export(p)
+        with fitz.open(p/data["annotated_file"]) as doc:
+            page=doc[0]; note=page.load_annot(int(data["items"][0]["annotation_id"]))
+            self.assertEqual(note.type[0],fitz.PDF_ANNOT_HIGHLIGHT); self.assertTrue(note.has_popup)
+            self.assertEqual(data["items"][0]["annotation_location"]["scope"],"ocr_line_region")
+        report=r.verify(p); self.assertTrue(report["automated_checks_pass"],report)
+        self.assertTrue(report["checks"]["body_render_preserved"])
+
+    def test_unlocated_items_are_in_document_summary_without_false_anchor(self):
+        for kind in ("docx", "pdf"):
+            with self.subTest(kind=kind):
+                p=self.project(kind); r.check(p,True); data=r.annotate(p); r.export(p); report=r.verify(p)
+                self.assertTrue(report["automated_checks_pass"],report)
+                item=next(i for i in data["items"] if i["id"]=="TA-004")
+                self.assertEqual(item["annotation_status"],"unlocated")
+                self.assertNotIn("annotation_location",item)
+                self.assertIn("TA-004",data["unlocated_note"]["item_ids"])
+                self.assertIn("本备注位置不是问题发生位置",data["unlocated_note"]["text"])
+                self.assertGreater(report["summary_count"],0)
+
     def test_source_index_cannot_invent_quote(self):
         p=self.project(); data=r.read(p/"review.json"); data["demo"]=False
         source=data["sources"][0]; source["kind"]="regulation"; source["official_url"]="https://www.ccs.org.cn/"

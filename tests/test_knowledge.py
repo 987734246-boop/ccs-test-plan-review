@@ -73,6 +73,14 @@ class KnowledgeTests(unittest.TestCase):
         with patch.object(r,'extract_document',side_effect=AssertionError('Regulation reparse is forbidden')):
             self.assertIsNone(r.validate_source(project,data['sources'][0],False))
 
+    def test_unreviewed_checklist_is_not_sent_as_manufacturer_defects(self):
+        project=self.prepare(); result=run.finish(project)
+        self.assertTrue(result['automated_checks_pass']); self.assertEqual(result['written_count'],0)
+        self.assertEqual(result['summary_count'],0); self.assertGreater(len(result['unreviewed']),0)
+        self.assertIn(result['primary_document'],result['outputs'])
+        from docx import Document
+        self.assertEqual(len(Document(result['primary_document']).comments),1)  # Original manufacturer's note only.
+
     def test_manifest_tampering_stops_prepare(self):
         path=self.pack/'manifest.json'; path.write_bytes(path.read_bytes()+b' ')
         with self.assertRaisesRegex(ValueError,'清单'): self.prepare()

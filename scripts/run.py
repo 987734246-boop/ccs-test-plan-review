@@ -35,9 +35,12 @@ def prepare(file,project,conditions=None,pack=k.DEFAULT_PACK):
 def finish(project):
     root=Path(project).resolve(); started=time.perf_counter()
     checked=r.check(root); r.annotate(root); r.export(root); result=r.verify(root)
+    document=root/r.read(root/'annotated.json')['annotated_file']
     return {'automated_checks_pass':result['automated_checks_pass'],'written_count':result['written_count'],
+            'primary_document':str(document),'summary_count':result['summary_count'],
+            'unreviewed':result['unreviewed'],
             'pending_count':sum(i['status']=='pending' for i in checked['items']),'unlocated':result['unlocated'],
-            'elapsed_seconds':round(time.perf_counter()-started,3),'outputs':[str(root/n) for n in ('review.xlsx','basis-and-gaps.md','verification.json')]}
+            'elapsed_seconds':round(time.perf_counter()-started,3),'outputs':[str(document)]+[str(root/n) for n in ('review.xlsx','basis-and-gaps.md','verification.json','evidence.zip')]}
 
 
 def main():

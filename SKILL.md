@@ -2,10 +2,10 @@
 name: ccs-test-plan-review
 display_name: CCS电气电子试验大纲审查
 display_name_en: CCS Electrical Test Plan Review
-description: 使用内置GD019-2024全文、结构化规则及2026年配套通告审查电气电子型式认可试验大纲，生成DOCX/PDF原文批注、Excel矩阵和可追溯证据。日常固定版本离线运行。用于大纲初审，不替代验船师签发，不用于考试题库。
-description_zh: 内置规范知识，直接对照大纲，输出原文批注和审查矩阵。
+description: 使用内置GD019-2024知识审查电气电子型式认可试验大纲，在Word/PDF原位批注实际问题、修改建议和需确认事项，供厂家或验船师直接跟进；同时输出矩阵及证据。日常固定版离线运行，用于大纲初审，不替代验船师签发。
+description_zh: 对照内置规范，在Word或PDF标清实际问题、修改建议和下一步确认要求。
 description_en: Review electrical type-approval test plans using a bundled versioned GD 019 knowledge pack and native document comments.
-version: 1.2.0
+version: 1.3.0
 author: CCS Test Plan Review Skill Project
 ---
 
@@ -16,7 +16,18 @@ author: CCS Test Plan Review Skill Project
 ## 两步工作流
 
 1. **准备。** 使用安装脚本打印的Python完整路径，运行 `python scripts/run.py prepare "大纲路径" --project "新项目目录" --conditions "项目条件JSON"`。条件文件可省略，缺失条件保留待确认。读取返回的提取警告及review.json。每个送审版本用独立目录。
-2. **审查并交付。** 按设备和安装环境逐项确认清单；运行 `python scripts/knowledge.py find --query "条款号或试验名"` 读取该项原文、参数和原页图。填写review.json中的适用性、原文锚点、发现及修改要求，再运行 `python scripts/run.py finish --project "项目目录"`。核对verification.json并交付批注副本、review.xlsx、basis-and-gaps.md和evidence.zip。
+2. **审查并交付。** 按设备和安装环境逐项确认清单；运行 `python scripts/knowledge.py find --query "条款号或试验名"` 读取该项原文、参数和原页图。填写review.json中的适用性、原文锚点和下述可执行意见，再运行 `python scripts/run.py finish --project "项目目录"`。核对verification.json；以返回的primary_document为主要交付，矩阵和证据作配套。
+
+## 让接收人直接处理的批注
+
+Word保留原生审阅批注；PDF在问题原文高亮并附可点击的原生备注，不把意见压成图片。保留原件、正文及已有批注。送审格式决定输出格式；用户需要另一格式时另行转换并复核定位，不假定转换会保留批注。
+
+- finding写清实际原文与问题：哪个设备/试验，写了什么、缺什么，与已确认依据差在哪里。action给出具体改法，可确定时给参考修订文本，不能只写“存在问题”“按规范修改”。
+- prepare创建的reviewed=false项只是待审任务。逐项阅读并形成结论或实际待确认事项后置reviewed=true；未审项只留在矩阵待办，不作为厂家缺陷批注。unreviewed非空时不得宣称已完成全部审查。
+- 需要确认时提出能回答的具体问题，明确未知条件为何影响判断。填写confirmation；用deliverable说明需提交的修订条目、图纸、批准文件或记录。证据不足保留pending，不把候选限值写成确定的不符合。
+- recipient指明厂家、验船师或其他实际处理方；需要时用closure_criteria说明什么回复及证据可供复核关闭。不虚构责任人、期限、事实或要求。无关字段留空。
+- 每条意见在文档内独立可读，包含问题编号、相关原文、问题/待核实事项、依据、修改/核实建议及已明确的跟进要求。Excel使用相同内容及编号，不能只在表中留下关键建议。
+- 整项遗漏定位到总表/标题，说明“本版大纲中未见列明”。不能可靠原位定位的问题放在首页/首个正文的“待定位事项汇总”备注，明确该锚点不是问题位置，继续列入待定位清单。
 
 ## 判断要求
 

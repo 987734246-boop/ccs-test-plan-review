@@ -35,6 +35,23 @@ extract 默认写 extraction.json；提取法规时必须指定 `--output source
 
 ## review.json
 
+v1.3沿用finding（具体问题）和action（修改或核实建议），可按实际跟进需要增加以下文字字段，旧项目不填仍兼容：
+
+prepare生成的待审清单带reviewed=false。模型实际核对该项后置true；未审任务不写成厂家问题，仍在矩阵及finish.unreviewed中显式保留。旧JSON未提供reviewed时沿用原来的处理方式；该布尔标记不代替证据校验。
+
+- recipient：厂家、验船师或实际接收方；不编造责任人。
+- confirmation：需对方回答的具体问题，写出影响判断的未知条件。
+- deliverable：需提供的修订条目、文件、图纸或记录，明确可执行的下一步。
+- closure_criteria：收到何种回复和证据后可以复核关闭；无依据时不编造。
+
+以上内容全部写入Word/PDF原生批注及Excel。文档批注含原文摘录，参数项附送审值与要求的对比；证据不足时标记待核实并写出缺口，不能称为确定性不符合。例（仅说明字段，不是规范限值）：
+
+```json
+{"finding":"本条未写试验运行状态，无法确认是否覆盖实际工作工况。","action":"补充样品运行状态、监测方式和合格判据。","recipient":"厂家","confirmation":"试验期间样品采用什么工作模式，监测哪些输出？","deliverable":"修订后的试验条目及状态/监测说明。","closure_criteria":"所选状态与设备用途相符，监测与判据完整且有依据，经复核后关闭。"}
+```
+
+annotated.json中的unlocated_note记录文档首处的待定位汇总批注及其问题编号；这些项仍为annotation_status=unlocated，不具有虚构的原位坐标。verification.json分别报告written_count（原位批注数）、summary_count（已写入汇总的待定位项数）和unlocated清单，并校验批注全文与跟进字段的一致性。finish返回primary_document，不遗漏主要文档路径。
+
 以 `templates/review.json` 为起点。schema_version=1；input_sha256 必须来自 extraction.json。project 保存产品型号、认可类别、安装位置、设备用途、日期、送审版本及待确认条件，不能用默认值伪造缺失条件。每个 items 元素代表一个设备的一项要求；同一试验多个参数可分多行。
 
 sources：

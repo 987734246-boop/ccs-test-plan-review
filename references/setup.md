@@ -14,7 +14,7 @@ powershell -NoProfile -File scripts/install.ps1 -WithOCR
 
 向WorkBuddy发送：
 
-> 使用ccs-test-plan-review和内置固定知识包审查这份大纲。先提取项目条件，缺失条件列待确认，逐项核查后输出原格式批注和审查矩阵。解释器为【完整路径】，项目目录为【独立路径】。
+> 使用ccs-test-plan-review和内置固定知识包审查这份大纲。在Word/PDF原文处批注实际问题、具体修改建议或需进一步确认的问题，写清厂家/验船师下一步应提供什么。原格式批注副本作为主要交付，矩阵和证据作配套。解释器为【完整路径】，项目目录为【独立路径】。
 
 ## 常用两条命令
 
@@ -25,6 +25,8 @@ powershell -NoProfile -File scripts/install.ps1 -WithOCR
 ```
 
 条件格式见templates/conditions.json。conditions可省略；未确认的类型/环境/用途不会自动补默认值。prepare生成待审清单，不直接产生合规结论。finish可处理部分已审项目，其余明确保留待核实；不覆盖原件。
+
+finish返回primary_document及完整输出路径。Word在“审阅→显示批注”中查看；PDF点击高亮或打开“注释/备注”面板。扫描页仅在原页核对后高亮已确认的文字区域。无法原位定位的意见写入首处“待定位事项汇总”备注，不冒充问题所在位置。不要将PDF批注扁平化，否则会失去交互备注；普通打印可能不显示备注全文。
 
 只读查看规则：`python scripts/knowledge.py find --query '2.7'`；校验安装包：`python scripts/knowledge.py verify`。检索结果含完整相关原文、预置参数、精确引用和随包原页图，无须重新渲染或识别规范。
 

@@ -243,7 +243,7 @@ def checklist(equipment,pack=DEFAULT_PACK):
         for rule in selected:
             required,reason=catalog.applicability(rule['clause'],device,data.get('tables'))
             items.append({'id':f'TA-{len(items)+1:03}', 'equipment':device['name'],'test':rule['title'],'rule_id':rule['id'],
-                          'proposed_status':'pending','applicability':{'confirmed':False,'reason':reason},
+                          'reviewed':False,'proposed_status':'pending','applicability':{'confirmed':False,'reason':reason},
                           'rule_applicability':{'required':required,'reason':reason},'anchor':{},'citations':copy.deepcopy(rule['anchors']),
                           'finding':'待对照本项适用条款与大纲','action':'核实适用条件并完成方法、参数、运行状态和判据对照'})
     return items
